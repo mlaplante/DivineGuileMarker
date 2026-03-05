@@ -116,11 +116,22 @@ local function DebugPrint(msg)
     end
 end
 
+--- Safely convert a GUID to a printable string.
+-- In WoW Midnight, UnitGUID() may return a "secret string" that cannot be
+-- passed to string operations. This helper wraps tostring() in pcall.
+local function SafeGUID(guid)
+    if not guid then return "nil" end
+    local ok, str = pcall(tostring, guid)
+    return ok and str or "[secret]"
+end
+
 --- Extract NPC ID from a GUID string.
 -- GUID format: "Creature-0-XXXX-XXXX-XXXX-NPCID-SPAWNID"
+-- Uses pcall because secret GUIDs cannot be passed to strsplit.
 local function GetNPCIDFromGUID(guid)
     if not guid then return nil end
-    local npcID = select(6, strsplit("-", guid))
+    local ok, _, _, _, _, _, npcID = pcall(strsplit, "-", guid)
+    if not ok then return nil end
     return npcID and tonumber(npcID) or nil
 end
 
@@ -265,7 +276,7 @@ local function StartNameplateScan()
                         state.npcIDsFound[npcID] = name or "Unknown"
                         DebugPrint(string.format(
                             "NPC found: %s (ID: %d) GUID: %s %s",
-                            name or "?", npcID, guid or "?",
+                            name or "?", npcID, SafeGUID(guid),
                             (guid == state.bossGUID) and "<-- REAL BOSS" or ""
                         ))
                     end
@@ -309,7 +320,7 @@ local function OnEncounterStart(encounterID, encounterName, difficultyID, groupS
             if npcID == LOTHRAXION_NPC_ID then
                 state.bossGUID = guid
                 state.inEncounter = true
-                DebugPrint("Boss GUID captured from " .. unit .. ": " .. guid)
+                DebugPrint("Boss GUID captured from " .. unit .. ": " .. SafeGUID(guid))
                 Print("Lothraxion detected — tracking for Divine Guile.")
                 return
             end
@@ -325,7 +336,7 @@ local function OnEncounterStart(encounterID, encounterName, difficultyID, groupS
             if npcID == LOTHRAXION_NPC_ID then
                 state.bossGUID = guid
                 state.inEncounter = true
-                DebugPrint("Boss GUID captured from " .. unit .. ": " .. guid)
+                DebugPrint("Boss GUID captured from " .. unit .. ": " .. SafeGUID(guid))
                 Print("Lothraxion detected — tracking for Divine Guile.")
                 return
             end
@@ -371,7 +382,7 @@ local function OnCombatLogEvent()
         if npcID == LOTHRAXION_NPC_ID then
             state.bossGUID = sourceGUID
             state.inEncounter = true
-            DebugPrint("Boss GUID captured from combat log: " .. sourceGUID)
+            DebugPrint("Boss GUID captured from combat log: " .. SafeGUID(sourceGUID))
         end
     end
 
@@ -380,7 +391,7 @@ local function OnCombatLogEvent()
         if DIVINE_GUILE_SPELL_IDS[spellID] then
             DebugPrint(string.format(
                 "Divine Guile detected! Source: %s (%s) SpellID: %d",
-                sourceName or "?", sourceGUID or "?", spellID
+                sourceName or "?", SafeGUID(sourceGUID), spellID
             ))
 
             -- This confirms the real boss GUID
@@ -410,7 +421,7 @@ local function OnCombatLogEvent()
                 state.divineGuileActive = true
                 state.markerSet = false
                 StartNameplateScan()
-                DebugPrint("Divine Guile aura detected on: " .. (sourceName or sourceGUID))
+                DebugPrint("Divine Guile aura detected on: " .. (sourceName or SafeGUID(sourceGUID)))
             end
         end
     end
@@ -441,7 +452,7 @@ local function OnCombatLogEvent()
             state.npcIDsFound[npcID] = sourceName or "Unknown"
             DebugPrint(string.format(
                 "New NPC in combat: %s (ID: %d) GUID: %s",
-                sourceName or "?", npcID, sourceGUID
+                sourceName or "?", npcID, SafeGUID(sourceGUID)
             ))
         end
     end
@@ -456,7 +467,7 @@ local function OnNameplateAdded(unit)
     local npcID = GetNPCIDFromGUID(guid)
     if npcID == LOTHRAXION_NPC_ID then
         state.bossGUID = guid
-        DebugPrint("Boss GUID captured from nameplate: " .. guid)
+        DebugPrint("Boss GUID captured from nameplate: " .. SafeGUID(guid))
     end
 end
 
@@ -468,7 +479,7 @@ local function HandleSlashCommand(msg)
     local cmd = msg:lower():trim()
 
     if cmd == "" or cmd == "help" then
-        Print("DivineGuileMarker v1.0.1 — Commands:")
+        Print("DivineGuileMarker v1.0.2 — Commands:")
         Print("  /dgm — Show this help")
         Print("  /dgm enable — Enable the addon")
         Print("  /dgm disable — Disable the addon")
@@ -525,7 +536,7 @@ local function HandleSlashCommand(msg)
         local mi = DivineGuileMarkerDB.markerIndex or SKULL_MARKER
         Print("Marker: " .. names[mi] .. " (" .. mi .. ")")
         Print("In encounter: " .. (state.inEncounter and "Yes" or "No"))
-        Print("Boss GUID: " .. (state.bossGUID or "Not captured"))
+        Print("Boss GUID: " .. (state.bossGUID and SafeGUID(state.bossGUID) or "Not captured"))
         Print("Divine Guile active: " .. (state.divineGuileActive and "Yes" or "No"))
         Print("In Nexus-Point: " .. (IsInNexusPoint() and "Yes" or "No"))
         if next(state.npcIDsFound) then
@@ -543,7 +554,7 @@ local function HandleSlashCommand(msg)
             Print(string.format("Target: %s | NPC ID: %s | GUID: %s",
                 UnitName("target") or "?",
                 tostring(npcID),
-                guid or "?"
+                SafeGUID(guid)
             ))
             state.bossGUID = guid
             state.divineGuileActive = true
@@ -583,7 +594,7 @@ DGM:SetScript("OnEvent", function(self, event, ...)
     if not DivineGuileMarkerDB.enabled then return end
 
     if event == "PLAYER_LOGIN" then
-        Print("v1.0.1 loaded. Type /dgm for options.")
+        Print("v1.0.2 loaded. Type /dgm for options.")
         Print("Tip: Run '/dgm debug' during Lothraxion to capture NPC IDs.")
 
     elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
