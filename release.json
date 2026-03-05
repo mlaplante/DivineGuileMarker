@@ -1,0 +1,16 @@
+{
+  "releases": [
+    {
+      "name": "DivineGuileMarker",
+      "version": "@project-version@",
+      "filename": "DivineGuileMarker-@project-version@.zip",
+      "nolib": false,
+      "metadata": [
+        {
+          "flavor": "mainline",
+          "interface": 120001
+        }
+      ]
+    }
+  ]
+}
