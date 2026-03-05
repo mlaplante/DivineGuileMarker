@@ -13,7 +13,9 @@
 -------------------------------------------------------------------------------
 
 local ADDON_NAME = "DivineGuileMarker"
-local DGM = CreateFrame("Frame", ADDON_NAME .. "Frame", UIParent)
+-- Anonymous frame with no parent avoids inheriting UIParent's protected
+-- attributes, which in Midnight causes RegisterEvent to be blocked.
+local DGM = CreateFrame("Frame")
 
 -- Alert frame created lazily on first use to avoid tainting the load-time
 -- execution context (which would block the protected RegisterEvent calls below).
@@ -488,7 +490,7 @@ local function HandleSlashCommand(msg)
     local cmd = msg:lower():trim()
 
     if cmd == "" or cmd == "help" then
-        Print("DivineGuileMarker v1.0.3 — Commands:")
+        Print("DivineGuileMarker v1.0.4 — Commands:")
         Print("  /dgm — Show this help")
         Print("  /dgm enable — Enable the addon")
         Print("  /dgm disable — Disable the addon")
@@ -591,20 +593,30 @@ SlashCmdList["DIVINEGUILEMARKER"] = HandleSlashCommand
 
 -------------------------------------------------------------------------------
 -- Main event dispatcher
+--
+-- Only ADDON_LOADED is registered at top level (main chunk). All other events
+-- are registered inside the ADDON_LOADED handler, which runs in the WoW event
+-- system context — guaranteed clean and not subject to taint from the main chunk.
 -------------------------------------------------------------------------------
 
-DGM:RegisterEvent("PLAYER_LOGIN")
-DGM:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
-DGM:RegisterEvent("ENCOUNTER_START")
-DGM:RegisterEvent("ENCOUNTER_END")
-DGM:RegisterEvent("NAME_PLATE_UNIT_ADDED")
-
 DGM:SetScript("OnEvent", function(self, event, ...)
+    if event == "ADDON_LOADED" then
+        local name = ...
+        if name ~= ADDON_NAME then return end
+        self:UnregisterEvent("ADDON_LOADED")
+        self:RegisterEvent("PLAYER_LOGIN")
+        self:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+        self:RegisterEvent("ENCOUNTER_START")
+        self:RegisterEvent("ENCOUNTER_END")
+        self:RegisterEvent("NAME_PLATE_UNIT_ADDED")
+        return
+    end
+
     if not DivineGuileMarkerDB.enabled then return end
 
     if event == "PLAYER_LOGIN" then
-        Print("v1.0.3 loaded. Type /dgm for options.")
-        Print("Tip: Run '/dgm debug' during Lothraxion to capture NPC IDs.")
+        Print("v1.0.4 loaded. Type /dgm for options.")
+        Print("Tip: Run '/dgm debug' during Lothraxion to capture spell IDs.")
 
     elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
         OnCombatLogEvent()
@@ -620,4 +632,4 @@ DGM:SetScript("OnEvent", function(self, event, ...)
     end
 end)
 
-Print("DivineGuileMarker file loaded.")
+DGM:RegisterEvent("ADDON_LOADED") -- only safe top-level registration
