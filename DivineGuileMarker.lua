@@ -61,10 +61,8 @@ local BRILLIANT_DISPERSION_SPELL_IDS = {
     [1257547] = true, -- primary ID from wowhead
 }
 
--- Nexus-Point Xenas encounter ID for Lothraxion
--- NOTE: This may need to be verified. If unknown, the addon also keys off
--- NPC ID detection as a fallback for encounter identification.
-local LOTHRAXION_ENCOUNTER_ID = 0  -- Set to 0 = match any encounter in the zone
+-- Nexus-Point Xenas encounter ID for Lothraxion (confirmed in-game)
+local LOTHRAXION_ENCOUNTER_ID = 3333
 
 -- Nexus-Point Xenas map/instance IDs
 -- The dungeon instance ID needs verification; we use zone name as fallback
@@ -386,6 +384,17 @@ local function OnCombatLogEvent()
         end
     end
 
+    -- Debug: log all spell events during encounter to help identify correct spell IDs
+    if state.debugMode and state.inEncounter and spellID and spellID > 0 then
+        if subevent == "SPELL_CAST_START" or subevent == "SPELL_CAST_SUCCESS"
+        or subevent == "SPELL_AURA_APPLIED" then
+            DebugPrint(string.format(
+                "[%s] %s cast %s (ID:%d)",
+                subevent, sourceName or "?", spellName or "?", spellID
+            ))
+        end
+    end
+
     -- Detect Divine Guile cast start
     if subevent == "SPELL_CAST_START" or subevent == "SPELL_CAST_SUCCESS" then
         if DIVINE_GUILE_SPELL_IDS[spellID] then
@@ -479,7 +488,7 @@ local function HandleSlashCommand(msg)
     local cmd = msg:lower():trim()
 
     if cmd == "" or cmd == "help" then
-        Print("DivineGuileMarker v1.0.2 — Commands:")
+        Print("DivineGuileMarker v1.0.3 — Commands:")
         Print("  /dgm — Show this help")
         Print("  /dgm enable — Enable the addon")
         Print("  /dgm disable — Disable the addon")
@@ -594,7 +603,7 @@ DGM:SetScript("OnEvent", function(self, event, ...)
     if not DivineGuileMarkerDB.enabled then return end
 
     if event == "PLAYER_LOGIN" then
-        Print("v1.0.2 loaded. Type /dgm for options.")
+        Print("v1.0.3 loaded. Type /dgm for options.")
         Print("Tip: Run '/dgm debug' during Lothraxion to capture NPC IDs.")
 
     elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
