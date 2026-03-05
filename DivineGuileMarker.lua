@@ -15,6 +15,28 @@
 local ADDON_NAME = "DivineGuileMarker"
 local DGM = CreateFrame("Frame", ADDON_NAME .. "Frame", UIParent)
 
+-- Alert frame created lazily on first use to avoid tainting the load-time
+-- execution context (which would block the protected RegisterEvent calls below).
+local alertFrame, alertText
+
+local function ShowScreenAlert()
+    if not alertFrame then
+        alertFrame = CreateFrame("Frame", nil, UIParent)
+        alertFrame:SetSize(700, 80)
+        alertFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 120)
+        alertFrame:SetFrameStrata("HIGH")
+        alertText = alertFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
+        alertText:SetAllPoints()
+        alertText:SetTextColor(1, 1, 0)
+    end
+    alertText:SetText("REAL LOTHRAXION FOUND! — Target WITHOUT horns!")
+    alertFrame:Show()
+    C_Timer.After(4, function() alertFrame:Hide() end)
+    if DivineGuileMarkerDB.soundAlert then
+        PlaySound(8959)
+    end
+end
+
 -------------------------------------------------------------------------------
 -- Constants
 -- NOTE: These IDs need to be verified in-game. The addon includes a
@@ -200,17 +222,6 @@ local function MarkRealBoss()
     return true
 end
 
---- Display a large on-screen alert as a fallback when marking fails.
-local function ShowScreenAlert()
-    -- Use RaidWarningFrame for a big center-screen message
-    RaidNotice_AddMessage(RaidWarningFrame,
-        "|cffFFFF00REAL LOTHRAXION FOUND!|r Target the one WITHOUT horns!",
-        ChatTypeInfo["RAID_WARNING"])
-
-    if DivineGuileMarkerDB.soundAlert then
-        PlaySound(8959)
-    end
-end
 
 -------------------------------------------------------------------------------
 -- Nameplate scanning during Divine Guile
@@ -457,7 +468,7 @@ local function HandleSlashCommand(msg)
     local cmd = msg:lower():trim()
 
     if cmd == "" or cmd == "help" then
-        Print("DivineGuileMarker v1.0.0 — Commands:")
+        Print("DivineGuileMarker v1.0.1 — Commands:")
         Print("  /dgm — Show this help")
         Print("  /dgm enable — Enable the addon")
         Print("  /dgm disable — Disable the addon")
@@ -572,7 +583,7 @@ DGM:SetScript("OnEvent", function(self, event, ...)
     if not DivineGuileMarkerDB.enabled then return end
 
     if event == "PLAYER_LOGIN" then
-        Print("v1.0.0 loaded. Type /dgm for options.")
+        Print("v1.0.1 loaded. Type /dgm for options.")
         Print("Tip: Run '/dgm debug' during Lothraxion to capture NPC IDs.")
 
     elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
@@ -588,10 +599,5 @@ DGM:SetScript("OnEvent", function(self, event, ...)
         OnNameplateAdded(...)
     end
 end)
-
--------------------------------------------------------------------------------
--- ShowScreenAlert - defined earlier but needs to be accessible
--- (Lua hoisting means the local function above works fine)
--------------------------------------------------------------------------------
 
 Print("DivineGuileMarker file loaded.")
