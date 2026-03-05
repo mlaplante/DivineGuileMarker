@@ -1,0 +1,9 @@
+## Interface: 120001
+## Title: DivineGuileMarker
+## Notes: Automatically marks the real Lothraxion during Divine Guile in Nexus-Point Xenas (M+)
+## Author: DivineGuileMarker
+## Version: 1.0.0
+## DefaultState: enabled
+## SavedVariables: DivineGuileMarkerDB
+
+DivineGuileMarker.lua
