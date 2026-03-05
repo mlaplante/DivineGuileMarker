@@ -41,6 +41,7 @@ local state = {
     inEncounter      = false,
     debugMode        = false,
     npcIDsFound      = {},
+    lastDebugZone    = nil,
 }
 
 -------------------------------------------------------------------------------
@@ -93,9 +94,8 @@ end
 
 --- Return true when the player is in Nexus-Point Xenas.
 local function IsInNexusPoint()
-    local _, instanceType = GetInstanceInfo()
+    local zoneName, instanceType = GetInstanceInfo()
     if instanceType ~= "party" then return false end
-    local zoneName = GetInstanceInfo()
     return zoneName ~= nil and zoneName:find("Nexus") ~= nil
 end
 
@@ -190,31 +190,48 @@ local function Poll()
     -- Fast exit when not in the right dungeon
     if not IsInNexusPoint() then
         if state.inEncounter then ResetEncounter() end
+        if state.debugMode then
+            local zoneName, instanceType = GetInstanceInfo()
+            local zoneKey = (zoneName or "") .. "|" .. (instanceType or "")
+            if state.lastDebugZone ~= zoneKey then
+                state.lastDebugZone = zoneKey
+                DebugPrint(string.format("Not in Nexus-Point. Zone: '%s' Type: '%s'",
+                    tostring(zoneName), tostring(instanceType)))
+            end
+        end
         return
     end
 
     -- ── Encounter start detection ────────────────────────────────────────────
     if not state.inEncounter then
+        local anyBoss = false
         for i = 1, 5 do
             local unit = "boss" .. i
-            if UnitExists(unit) and UnitName(unit) == BOSS_NAME then
-                state.bossGUID    = UnitGUID(unit)   -- may be secret; used for == only
-                state.inEncounter = true
-                state.bossUnitToken = unit
-                Print("Lothraxion detected — watching for Divine Guile.")
-                DebugPrint("Boss GUID captured from " .. unit .. ": " .. SafeGUID(state.bossGUID))
-            end
-            -- Debug: log all boss-frame NPC IDs
-            if state.debugMode and UnitExists(unit) then
+            if UnitExists(unit) then
+                anyBoss = true
+                local name  = UnitName(unit)
                 local guid  = UnitGUID(unit)
                 local npcID = GetNPCIDFromGUID(guid)
-                local name  = UnitName(unit)
-                if npcID and not state.npcIDsFound[npcID] then
-                    state.npcIDsFound[npcID] = name or "Unknown"
-                    DebugPrint(string.format("Boss frame: %s (NPC ID: %d) on %s",
-                        name or "?", npcID, unit))
+                -- Debug: log every boss frame name (once per unique name/NPC combo)
+                if state.debugMode then
+                    local key = tostring(name) .. "|" .. tostring(npcID)
+                    if not state.npcIDsFound[key] then
+                        state.npcIDsFound[key] = true
+                        DebugPrint(string.format("Boss frame %s: name='%s' npcID=%s GUID=%s",
+                            unit, tostring(name), tostring(npcID), SafeGUID(guid)))
+                    end
+                end
+                if name == BOSS_NAME then
+                    state.bossGUID      = guid   -- may be secret; used for == only
+                    state.inEncounter   = true
+                    state.bossUnitToken = unit
+                    Print("Lothraxion detected — watching for Divine Guile.")
+                    DebugPrint("Boss GUID captured from " .. unit .. ": " .. SafeGUID(guid))
                 end
             end
+        end
+        if state.debugMode and not anyBoss then
+            DebugPrint("In Nexus-Point but no boss frames active.")
         end
         return
     end
@@ -278,7 +295,7 @@ local function HandleSlashCommand(msg)
     local cmd = msg:lower():trim()
 
     if cmd == "" or cmd == "help" then
-        Print("DivineGuileMarker v1.0.6 — Commands:")
+        Print("DivineGuileMarker v1.0.7 — Commands:")
         Print("  /dgm            — Show this help")
         Print("  /dgm enable     — Enable the addon")
         Print("  /dgm disable    — Disable the addon")
@@ -390,5 +407,5 @@ C_Timer.After(0, function()
     if DivineGuileMarkerDB.announceToParty == nil then DivineGuileMarkerDB.announceToParty = false end
     if DivineGuileMarkerDB.markerIndex    == nil then DivineGuileMarkerDB.markerIndex    = SKULL_MARKER end
     if DivineGuileMarkerDB.soundAlert     == nil then DivineGuileMarkerDB.soundAlert     = true  end
-    Print("v1.0.6 loaded. Type /dgm for options.")
+    Print("v1.0.7 loaded. Type /dgm for options.")
 end)
