@@ -76,19 +76,29 @@ local function GetNPCIDFromGUID(guid)
     return npcID and tonumber(npcID) or nil
 end
 
---- Find a unit token for a stored GUID by scanning boss frames and nameplates.
+--- Find a unit token for a stored GUID by scanning boss frames, nameplates,
+--- player target/focus, and party member targets.
 local function FindUnitByGUID(targetGUID)
     if not targetGUID then return nil end
+    -- Boss frames first (most reliable)
     for i = 1, 5 do
         local unit = "boss" .. i
         if UnitExists(unit) and UnitGUID(unit) == targetGUID then return unit end
     end
-    for i = 1, 40 do
-        local unit = "nameplate" .. i
-        if UnitExists(unit) and UnitGUID(unit) == targetGUID then return unit end
+    -- Nameplates (when visible)
+    local allPlates = C_NamePlate.GetNamePlates() or {}
+    for _, plate in ipairs(allPlates) do
+        local unit = plate.namePlateUnitToken
+        if unit and UnitExists(unit) and UnitGUID(unit) == targetGUID then return unit end
     end
+    -- Player target and focus
     if UnitExists("target") and UnitGUID("target") == targetGUID then return "target" end
     if UnitExists("focus")  and UnitGUID("focus")  == targetGUID then return "focus"  end
+    -- Party member targets (useful when tank has boss targeted)
+    for i = 1, 4 do
+        local unit = "party" .. i .. "target"
+        if UnitExists(unit) and UnitGUID(unit) == targetGUID then return unit end
+    end
     return nil
 end
 
@@ -225,13 +235,33 @@ local function Poll()
                     state.bossGUID      = guid   -- may be secret; used for == only
                     state.inEncounter   = true
                     state.bossUnitToken = unit
-                    Print("Lothraxion detected — watching for Divine Guile.")
+                    Print("Lothraxion detected — marking real boss.")
                     DebugPrint("Boss GUID captured from " .. unit .. ": " .. SafeGUID(guid))
+                    -- Mark immediately; no need to wait for Divine Guile detection
+                    -- since we already have the real boss's GUID and unit token.
+                    state.divineGuileActive = true
                 end
             end
         end
-        if state.debugMode and not anyBoss then
-            DebugPrint("In Nexus-Point but no boss frames active.")
+        -- Fallback: if boss frames aren't populated, check target/focus/party targets
+        if not state.inEncounter then
+            local fallbackUnits = {"target", "focus"}
+            for i = 1, 4 do fallbackUnits[#fallbackUnits + 1] = "party" .. i .. "target" end
+            for _, unit in ipairs(fallbackUnits) do
+                if UnitExists(unit) and UnitName(unit) == BOSS_NAME then
+                    local guid = UnitGUID(unit)
+                    state.bossGUID          = guid
+                    state.inEncounter       = true
+                    state.bossUnitToken     = unit
+                    state.divineGuileActive = true
+                    Print("Lothraxion detected via " .. unit .. " — marking real boss.")
+                    DebugPrint("Boss GUID captured from " .. unit .. ": " .. SafeGUID(guid))
+                    break
+                end
+            end
+        end
+        if state.debugMode and not anyBoss and not state.inEncounter then
+            DebugPrint("In Nexus-Point but no boss frames or targets named Lothraxion found.")
         end
         return
     end
@@ -248,42 +278,81 @@ local function Poll()
     end
 
     -- ── Divine Guile detection ────────────────────────────────────────────────
-    -- Count nameplates named "Lothraxion". During Divine Guile, Fractured
-    -- Images share the boss name, so 2+ units = mechanic is active.
+    -- Count units named "Lothraxion". During Divine Guile, Fractured Images
+    -- share the boss name, so 2+ units = mechanic is active.
+    --
+    -- Strategy: use C_NamePlate.GetNamePlates() (reliable, all rendered plates)
+    -- with a dedup table, then also check boss1-5 frames as a fallback in case
+    -- copies appear there. Avoids the nameplate1-40 indexed approach which only
+    -- covers currently-visible rendered slots.
     local lothraxionCount = 0
-    for i = 1, 40 do
-        local unit = "nameplate" .. i
-        if UnitExists(unit) then
-            if UnitName(unit) == BOSS_NAME then
-                lothraxionCount = lothraxionCount + 1
-            end
-            -- Debug: log all NPC IDs seen on nameplates during encounter
-            if state.debugMode then
-                local guid  = UnitGUID(unit)
-                local npcID = GetNPCIDFromGUID(guid)
-                local name  = UnitName(unit)
-                if npcID and not state.npcIDsFound[npcID] then
-                    state.npcIDsFound[npcID] = name or "Unknown"
-                    DebugPrint(string.format("Nameplate NPC: %s (ID: %d) GUID: %s%s",
-                        name or "?", npcID, SafeGUID(guid),
-                        (guid == state.bossGUID) and " <-- REAL BOSS" or ""))
+    local seenGUIDs = {}
+
+    -- Primary: all rendered nameplates via the modern API
+    local allPlates = C_NamePlate.GetNamePlates() or {}
+    if state.debugMode and #allPlates == 0 then
+        DebugPrint("C_NamePlate.GetNamePlates() returned 0 plates — are enemy nameplates enabled?")
+    end
+    for _, plate in ipairs(allPlates) do
+        local unit = plate.namePlateUnitToken
+        if unit and UnitExists(unit) then
+            local guid = UnitGUID(unit)
+            local name = UnitName(unit)
+            if not seenGUIDs[guid] then
+                seenGUIDs[guid] = true
+                if name == BOSS_NAME then
+                    lothraxionCount = lothraxionCount + 1
+                end
+                -- Debug: log all NPC IDs seen on nameplates during encounter
+                if state.debugMode then
+                    local npcID = GetNPCIDFromGUID(guid)
+                    if npcID and not state.npcIDsFound[npcID] then
+                        state.npcIDsFound[npcID] = name or "Unknown"
+                        DebugPrint(string.format("Nameplate NPC: %s (ID: %s) GUID: %s%s",
+                            name or "?", tostring(npcID), SafeGUID(guid),
+                            (guid == state.bossGUID) and " <-- REAL BOSS" or ""))
+                    end
                 end
             end
         end
     end
 
-    if lothraxionCount >= 2 then
-        if not state.divineGuileActive then
-            state.divineGuileActive = true
-            state.markerSet         = false
-            DebugPrint(string.format("Divine Guile detected! %d Lothraxion units visible.", lothraxionCount))
+    -- Fallback: boss frames (copies sometimes appear here too; dedup by GUID)
+    for i = 1, 5 do
+        local unit = "boss" .. i
+        if UnitExists(unit) then
+            local guid = UnitGUID(unit)
+            local name = UnitName(unit)
+            if not seenGUIDs[guid] then
+                seenGUIDs[guid] = true
+                if name == BOSS_NAME then
+                    lothraxionCount = lothraxionCount + 1
+                    if state.debugMode then
+                        DebugPrint(string.format("Boss frame %s also named '%s' (Divine Guile copy?)", unit, name))
+                    end
+                end
+            end
         end
-        if not state.markerSet then
-            MarkRealBoss()
+    end
+
+    if state.debugMode and lothraxionCount > 0 then
+        DebugPrint(string.format("Lothraxion units visible: %d (need 2 for Divine Guile)", lothraxionCount))
+    end
+
+    -- Divine Guile info is logged for debug context, but marking no longer
+    -- requires nameplate detection — the real boss is marked as soon as the
+    -- encounter is detected via boss frames (which are always populated).
+    if state.debugMode then
+        if lothraxionCount >= 2 then
+            DebugPrint(string.format("Divine Guile confirmed via nameplates: %d Lothraxion units.", lothraxionCount))
+        else
+            DebugPrint(string.format("Lothraxion nameplates visible: %d (nameplate detection unreliable for this fight)", lothraxionCount))
         end
-    elseif state.divineGuileActive then
-        state.divineGuileActive = false
-        DebugPrint("Divine Guile ended.")
+    end
+
+    -- Re-apply marker every poll until confirmed set (handles marker being cleared).
+    if not state.markerSet then
+        MarkRealBoss()
     end
 end
 
@@ -295,7 +364,7 @@ local function HandleSlashCommand(msg)
     local cmd = msg:lower():trim()
 
     if cmd == "" or cmd == "help" then
-        Print("DivineGuileMarker v1.0.7 — Commands:")
+        Print("DivineGuileMarker v1.1.0 — Commands:")
         Print("  /dgm            — Show this help")
         Print("  /dgm enable     — Enable the addon")
         Print("  /dgm disable    — Disable the addon")
@@ -407,5 +476,5 @@ C_Timer.After(0, function()
     if DivineGuileMarkerDB.announceToParty == nil then DivineGuileMarkerDB.announceToParty = false end
     if DivineGuileMarkerDB.markerIndex    == nil then DivineGuileMarkerDB.markerIndex    = SKULL_MARKER end
     if DivineGuileMarkerDB.soundAlert     == nil then DivineGuileMarkerDB.soundAlert     = true  end
-    Print("v1.0.7 loaded. Type /dgm for options.")
+    Print("v1.1.0 loaded. Type /dgm for options.")
 end)

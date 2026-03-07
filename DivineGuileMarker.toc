@@ -2,7 +2,7 @@
 ## Title: DivineGuileMarker
 ## Notes: Automatically marks the real Lothraxion during Divine Guile in Nexus-Point Xenas (M+)
 ## Author: DivineGuileMarker
-## Version: 1.0.7
+## Version: 1.1.0
 ## DefaultState: enabled
 ## SavedVariables: DivineGuileMarkerDB
 
